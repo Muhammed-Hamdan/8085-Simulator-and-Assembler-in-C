@@ -2,7 +2,8 @@
 This is a simple 8085 simulator and assembler coded entirely in C.
 
 Demo video of assembler: https://drive.google.com/file/d/1CWp9iiC2gDsfXR6RvTzF5akj0le98Mk2/view?usp=sharing
-Demo vide0 of simulator: https://drive.google.com/file/d/1-Fkb-1_E8S-LAVhP2jdwEWxJNlSyM0kv/view?usp=sharing
+
+Demo video of simulator: https://drive.google.com/file/d/1-Fkb-1_E8S-LAVhP2jdwEWxJNlSyM0kv/view?usp=sharing
 
 Steps to follow to use the assembler:
 1) Download the source code and the user guide. 
