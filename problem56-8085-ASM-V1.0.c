@@ -140,8 +140,8 @@ const char INS_SIZE[INS_SET_SIZE] = {
 const char ISA_DIRECTIVE[NO_DIRECTIVES][6] = {"DB","DS","DW","END","EQU","ORG"};
 
 int error_code  = 0;
-int program_counter = 0x8000;
-int RAM_counter = 0x0000;
+int program_counter = 0x0800;
+int RAM_counter = 0x0200;
 
 void pass1(char path_orig[],char path_inter[]);										   // Pass 1 of assembler 
 void pass2(char path_inter[],char path_final[]); 									   // Pass 2 of assembler
@@ -152,7 +152,7 @@ char search_instruction(char token[]);												   // Search if token is a val
 char search_directive(char token[]);												   // Search if token is a valid directive
 void update_symbol_table(char token[],int program_counter);							   // Update symbol table with label and address
 void generate_opcode(char buff[],char token[],char ins_no);							   // For valid instruction, check if operands correct and provide op-code
-void handle_directive(char token[][MAX_TOKEN_SIZE],char dir_no,char start_token);      // Take necessary action according to directive                                       
+void handle_directive(char token[][MAX_TOKEN_SIZE],char dir_no,char start_token, char buff[]);  // Take necessary action according to directive                                       
 int find_label(char label[]);                                                          // Locate and return address of label. If not found, return -1
 void search_error(int error_code,int line);											   // Print Error message with line number
 
@@ -168,7 +168,7 @@ char isregister(char ch[]);															   // Check if ch is A,B,C,D,E,H,L,PSW
 
 int main(){
 	const char directory[] = "D://ASM-8085/"; 
-	const char file_orig[] = "test.asm";
+	const char file_orig[] = "short_div_fast.txt";
 	char file_inter[strlen(file_orig)+15];
 	char file_final[strlen(file_orig)+15];
 	char path_orig[strlen(directory)+strlen(file_orig)];
@@ -306,8 +306,9 @@ char tokenize(char buff[], char token[][MAX_TOKEN_SIZE]){
 }
 
 void parse_tokens(char buff[],char token[][MAX_TOKEN_SIZE], char no_token){
-	char ins_no = 0, dir_no = 0;
+	char ins_no = 0, dir_no = 0, label_type = 0;
 	char label_flag = 0, symbol_flag = 0;
+	char *buff_start = buff;
 	
 	if(no_token==0){																	            // If no tokens, return
 		buff[0]='\n'; buff[1]='\0';                                                                 // Empty line in pass 1
@@ -322,42 +323,49 @@ void parse_tokens(char buff[],char token[][MAX_TOKEN_SIZE], char no_token){
 	}
 	 
 	if(label_flag){                                                                                 // If token is a label
-		if(check_syntax(token[0],LABEL)){															// check syntax							 
+		label_type = check_syntax(token[0],LABEL);
+		if(label_type){																				// check syntax							 
 			token[0][strlen(token[0])-1]='\0';
 					
 			ins_no = search_instruction(token[1]);												    // Read next token
 			if(ins_no==0) dir_no = search_directive(token[1]);
 			
 			if(ins_no){																				// If next token is instruction, generate op-code with operands
-				update_symbol_table(token[0],program_counter);	
-				generate_opcode(buff,token[2],ins_no);
+				if(label_type==1) update_symbol_table(token[0],program_counter);
+				else {
+					program_counter = str2num(token[0]);
+					sprintf(buff,"@%X\n",program_counter);
+					buff_start = buff + strlen(buff);
+				}
+				generate_opcode(buff_start,token[2],ins_no);
 			}
 			else if(dir_no){																		// If next token is directive, handle it with operands
-				update_symbol_table(token[0],RAM_counter);
-				handle_directive(token,dir_no,LABEL);
+				if(label_type==1) update_symbol_table(token[0],RAM_counter);
+				else RAM_counter = str2num(token[0]);	
+				handle_directive(token,dir_no,LABEL,buff);
 			}	
 			else error_code = 20;																	// Expected valid ins/dir after label
 		}
 		else error_code = 5;																		// Invalid label
 	}
 	else if(ins_no){																				// If next token is instruction
-		generate_opcode(buff,token[1],ins_no);													    // Generate op-code with operands
+		generate_opcode(buff_start,token[1],ins_no);											    // Generate op-code with operands
 	}
 	else if(dir_no){																				// If next token is directive																		
-		handle_directive(token,dir_no,0);															// Handle directive with operands
+		handle_directive(token,dir_no,0,buff);														// Handle directive with operands
 	}
 	else if(symbol_flag){																			// If token is a symbol
 		if(check_syntax(token[0],SYMBOL)) { 	 					                                // Check syntax & update symbol table with -1	
 			dir_no = search_directive(token[1]);													// Read next token
-			if(dir_no) handle_directive(token,dir_no,SYMBOL);										// If next token is directive, handle it with operands											
+			if(dir_no) handle_directive(token,dir_no,SYMBOL,buff);								    // If next token is directive, handle it with operands											
 			else error_code = 25;																    // Expected valid dir after symbol
 		}
 		else error_code = 10;																		// Invalid symbol
 		 
 	}
 	else error_code = 15;																			// Invalid token
-	if(dir_no){
-		buff[0]='\n'; buff[1]='\0';                                                                 // Lines containing directives convert as empty line in pass 1
+	if(dir_no!=0&&dir_no!=6){
+		buff[0]='\n'; buff[1]='\0';                                                                 // Lines containing directives convert as empty line in pass 1 except ORG
 	}
 }
 
@@ -513,7 +521,7 @@ void generate_opcode(char buff[],char token[],char mne_no){
 	program_counter+=bytes;                                                                                                     // Increment program counter by number of bytes in instruction
 }
 
-void handle_directive(char token[][MAX_TOKEN_SIZE],char dir_no,char start_token){
+void handle_directive(char token[][MAX_TOKEN_SIZE],char dir_no,char start_token, char buff[]){
 	char operand[MAX_TOKEN_SIZE], temp[MAX_TOKEN_SIZE];
 	int i, j, k, num;
 	switch(dir_no){
@@ -608,10 +616,14 @@ void handle_directive(char token[][MAX_TOKEN_SIZE],char dir_no,char start_token)
 					error_code = 60;
 					break;
 				}
-				if(start_token==LABEL) update_symbol_table(token[0],program_counter);
-				strcpy(operand,token[2]);
+				if(start_token==LABEL){
+					update_symbol_table(token[0],program_counter);
+					strcpy(operand,token[2]);
+				}
+				else strcpy(operand,token[1]);
 				num = str2num(operand);
-				program_counter=num;           
+				program_counter=num;
+				sprintf(buff,"@%X\n",program_counter);        
 				break;
 			default:
 				error_code = 120;                                                                     // Unidentified directive
@@ -777,17 +789,17 @@ void dec_arg(char op_code[],char operand[],int end,int nibble){
 }
 
 int str2num(char operand[]){
-	int i, j, k, num;
+	int i, j, k, num = 0;
 	i = 0;
 	while(operand[i]!='\0') i++;
 	if(operand[i-1]=='H'){                                                                  // Operand is hexadecimal number 
 		i-=2;
 		j = i;
-		while(i!=0){
+		while(i>=0){
 			if(ishexdigit(operand[i])){
 				if(isdigit(operand[i])) k = operand[i]-'0';
 				else k = operand[i]-'A'+10;
-				num+=k<<(j-i);
+				num|=k<<((j-i)*4);
 			}
 		    else error_code = 35;
 		    i--;
@@ -819,21 +831,29 @@ char check_syntax(char token[],char operand_type){
 	int i;
 	switch(operand_type){
 		case LABEL: // syntax checking for LABEL 
-			if(!isalpha(token[0])) return 0;
-			i = 1;
+			i = 0;
 			while(isalnum(token[i])) i++;
-			if(token[i]!=':') return 0;
+			if(token[i]==':'){
+				if(isalpha(token[0])) return 1; 									// A label
+				if(isdigit(token[0])){
+					if(token[i-1]=='H') return 2;									// Hex label
+					else if(token[i-1]=='D'||isdigit(token[i-1])) return 3;			// Decimal label
+					else return 0;
+				}
+			}
+			else return 0;
 			break;
 		case SYMBOL: // syntax checking for SYMBOL
 			if(!isalpha(token[0])) return 0;
 			i = 1;
 			while(isalnum(token[i])) i++;
 			if(token[i]!='\0') return 0;
+			return 1;
 			break;
 	    default:
 	   		break;
 	}
-	return 1;
+	return 0;
 }
 
 char ishexdigit(char ch){
@@ -842,7 +862,7 @@ char ishexdigit(char ch){
 }
 
 char isregister(char ch[]){
-	if(((ch[0]=='A'||ch[0]=='B'||ch[0]=='C'||ch[0]=='D'||ch[0]=='E'||ch[0]=='H'||ch[0]=='L'||ch[0]=='M')&&(ch[1]=='\0'||ch[1]==','))||strcmp(ch,"SP\n")==0||strcmp(ch,"PSW\n")==0){
+	if(((ch[0]=='A'||ch[0]=='B'||ch[0]=='C'||ch[0]=='D'||ch[0]=='E'||ch[0]=='H'||ch[0]=='L'||ch[0]=='M')&&(ch[1]=='\0'||ch[1]==','))||strcmp(ch,"SP")==0||strcmp(ch,"PSW")==0){
 		return 1;
 	}
 	else return 0;
